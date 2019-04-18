@@ -108,26 +108,47 @@ def reverse_readline(filename, buf_size=8192):
             yield segment
 
 
-def parse(filename, filter, dateage, datecolumns, dateformat):
-    filterexpression = re.compile(filter) if filter else False
+def check(config):
+    ## Before anything, check if our logfile exists
+    error = None
+    if not os.path.exists(config.logfile):
+        error = "Could not find logfile " + os.path.basename(config.file)
+    elif not os.access(config.logfile, os.R_OK):
+        error = "Could find but not read logfile " + os.path.basename(config.file)
+    ## Then, check if we are stale and if we are interested in stale-ness
+    elif config.stalealert:
+        mtime = os.stat(config.file).st_mtime
+        lastmod = datetime.fromtimestamp(mtime)
+        allowedage = yamltime_to_timedelta(config.stalealert)
+        if datetime.now() - allowedage > lastmod:
+            error = "The log file " + os.path.basename(config.file) + " was older than " + config.stalealert + " and is considered stale."
 
-    staletime = datetime.now() - yamltime_to_timedelta(dateage)
+    ## File exists and is not too old
+    if error:
+        return error
+    else:
+        count = 0
+        filterexpression = re.compile(config.filter) if config.filter else False
 
-    for logline in reverse_readline(filename):
-        # First, discard this line if it does not match the filter (or if the filter is empty)
-        if not filterexpression or filterexpression.search(logline):
-            # Second, parse the date to see if we are still actual. Break when done!
-            if dateage:
-                splitlist = logline.split()
-                if datecolumns.length > 1:
-                    loglinedate = splitlist[datecolumns[0]]
-                    loglinedate += " " + splitlist[datecolumns[1]]
-                else:
-                    loglinedate = splitlist[datecolumns]
-                parsetime = datetime.strptime(dateformat,loglinedate)
-                if parsetime < staletime:
-                    break
+        donetime = datetime.now() - yamltime_to_timedelta(config.dateage) if config.dateage else False
 
+        for logline in reverse_readline(config.logfile):
+            # First, discard this line if it does not match the filter (or if the filter is empty)
+            if not filterexpression or filterexpression.search(logline):
+                # Second, parse the date to see if we are still actual. Break when done!
+                if config.dateage:
+                    splitlist = logline.split()
+                    if config.datecolumns.length > 1:
+                        loglinedate = splitlist[config.datecolumns[0]]
+                        loglinedate += " " + splitlist[config.datecolumns[1]]
+                    else:
+                        loglinedate = splitlist[config.datecolumns]
+                    parsetime = datetime.strptime(config.dateformat,loglinedate)
+                    if parsetime < donetime:
+                        break
+                count += 1
+
+        return count, error
 
 def getCheckNames(configurations):
     return [name for name in configurations["configurations"] if
@@ -137,7 +158,8 @@ if __name__ == "__main__":
     description = '''  
 https://github.com/b0tting/NagiosLogParser (motting@qualogy.com)
 This is a script that should memory-efficiently parse log files and return a 
-nagios valid error message and code depending on a number of metrics. 
+nagios valid error message and code depending on the number of times a certain
+metric appeared.   
 Note that this script requires a valid config file. 
 '''
     parser = argparse.ArgumentParser(description=description)
@@ -215,17 +237,12 @@ Note that this script requires a valid config file.
             unknownToCrit = False if "unknownascritical" not in config else config["unknownascritical"]
             params = False if "parameters" not in config else config["parameters"]
 
-            if nagiosMessage != "":
-                nagiosMessage += ". "
-
-
-
-            PARRSSSEEE
+            result, error = parser(config)
 
             ## If the error message is not empty
-            if result[1]:
+            if error:
                 nagiosResult = NAGIOS_UNKNOWN
-                nagiosMessage += server + " reports " + result[1]
+                nagiosMessage = error
             else:
                 try:
                     if criticalCheck.inBadState(result[0]):
