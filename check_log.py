@@ -1,4 +1,5 @@
-
+import argparse
+import sys
 from datetime import datetime
 import os
 
@@ -7,24 +8,28 @@ import re
 from datetime import timedelta
 from time import strftime
 
+import yaml
+
 NAGIOS_OK = 0
 NAGIOS_WARNING = 1
 NAGIOS_CRITICAL = 2
 NAGIOS_UNKNOWN = 3
 NAGIOS_DICT = {NAGIOS_OK: "OK", NAGIOS_WARNING: "WARNING", NAGIOS_CRITICAL: "CRITICAL", NAGIOS_UNKNOWN: "UNKNOWN"}
 RESULTBLOCK="[RESULT]"
-SERVERBLOCK="[SERVER]"
+LOGFILEBLOCK="[LOGFILE]"
 CONFIG_FILE="logparseconfig.yaml"
 
 
 def yamltime_to_timedelta(yamltime):
-    if yamltime.endswith("d"):
-        return timedelta(days=yamltime[:-1])
-    elif yamltime.endswith("h"):
-        return timedelta(hours=yamltime[:-1])
-    elif yamltime.endswith("m"):
-        return timedelta(minutes=yamltime[:-1])
-    else:
+    scalar = int(yamltime[:-1])
+    try:
+        if yamltime.endswith("d"):
+            return timedelta(days=scalar)
+        elif yamltime.endswith("h"):
+            return timedelta(hours=scalar)
+        elif yamltime.endswith("m"):
+            return timedelta(minutes=scalar)
+    except Exception as e:
         raise ValueError("Could not parse " + yamltime + " into a valid hours (h), minutes (m) or days (d) time")
 
 class NagiosBoundaryCheck:
@@ -48,6 +53,8 @@ class NagiosBoundaryCheck:
             self.type = "gt"
             self.boundaryfloat = float(configDict["greaterthan"])
         else:
+            print("HIERZO")
+            print(configDict)
             raise ValueError("A warning or critical boundary should have an 'expression', 'lessthan' or 'greaterthan' value")
         self.message = defaultMessage if (not configDict or "message" not in configDict) else configDict["message"]
 
@@ -109,50 +116,58 @@ def reverse_readline(filename, buf_size=8192):
 
 
 def check(config):
+    print(config)
     ## Before anything, check if our logfile exists
     error = None
-    if not os.path.exists(config.logfile):
-        error = "Could not find logfile " + os.path.basename(config.file)
-    elif not os.access(config.logfile, os.R_OK):
-        error = "Could find but not read logfile " + os.path.basename(config.file)
+    if not os.path.exists(config["logfile"]):
+        error = "Could not find logfile " + os.path.basename(config["logfile"])
+    elif not os.access(config["logfile"], os.R_OK):
+        error = "Could find but not read logfile " + os.path.basename(config["logfile"])
     ## Then, check if we are stale and if we are interested in stale-ness
-    elif config.stalealert:
-        mtime = os.stat(config.file).st_mtime
+    elif "stalealert" in config:
+        mtime = os.stat(config["logfile"]).st_mtime
         lastmod = datetime.fromtimestamp(mtime)
-        allowedage = yamltime_to_timedelta(config.stalealert)
+        allowedage = yamltime_to_timedelta(config["stalealert"])
         if datetime.now() - allowedage > lastmod:
-            error = "The log file " + os.path.basename(config.file) + " was older than " + config.stalealert + " and is considered stale."
+            error = "The log file " + os.path.basename(config["logfile"]) + " was older than " + config["stalealert"] + " and is considered stale."
 
     ## File exists and is not too old
     if error:
-        return error
+        return 0, error
     else:
         count = 0
-        filterexpression = re.compile(config.filter) if config.filter else False
+        filterexpression = re.compile(str(config["filter"])) if config["filter"] else False
 
-        donetime = datetime.now() - yamltime_to_timedelta(config.dateage) if config.dateage else False
+        donetime = datetime.now() - yamltime_to_timedelta(config["dateage"]) if config["dateage"] else False
 
-        for logline in reverse_readline(config.logfile):
+        ## Prep the column numbers in which to find date and time
+        if "dateage" in config:
+            columns = [int(col) for col in config["datecolumn"].split(",")]
+        else:
+            columns = False
+
+        for logline in reverse_readline(config["logfile"]):
             # First, discard this line if it does not match the filter (or if the filter is empty)
             if not filterexpression or filterexpression.search(logline):
                 # Second, parse the date to see if we are still actual. Break when done!
-                if config.dateage:
+                if columns:
                     splitlist = logline.split()
-                    if config.datecolumns.length > 1:
-                        loglinedate = splitlist[config.datecolumns[0]]
-                        loglinedate += " " + splitlist[config.datecolumns[1]]
+                    if len(columns) > 1:
+                        loglinedate = splitlist[columns[0]]
+                        loglinedate += " " + splitlist[columns[1]]
                     else:
-                        loglinedate = splitlist[config.datecolumns]
-                    parsetime = datetime.strptime(config.dateformat,loglinedate)
+                        loglinedate = splitlist[columns[0]]
+                    parsetime = datetime.strptime(loglinedate,config["dateformat"])
                     if parsetime < donetime:
                         break
                 count += 1
 
         return count, error
 
+# Here we figure out if this is a template or an actual check, using the message attribute to discriminate
 def getCheckNames(configurations):
     return [name for name in configurations["configurations"] if
-            "url" in configurations["configurations"][name]]
+            "message" in configurations["configurations"][name]]
 
 if __name__ == "__main__":
     description = '''  
@@ -183,7 +198,7 @@ Note that this script requires a valid config file.
 
     if (os.path.exists(configfile)):
         try:
-            configurations = yaml.load(open(configfile, "r"))
+            configurations = yaml.load(open(configfile, "r"), Loader=yaml.FullLoader)
         except yaml.YAMLError, exc:
             if hasattr(exc, 'problem_mark'):
                 mark = exc.problem_mark
@@ -211,13 +226,11 @@ Note that this script requires a valid config file.
 
     if args.check:
         if args.check not in getCheckNames(configurations):
-            print(
-                        "UNKNOWN: Could not find " + args.check + " in the list of known checks. Run script with -h parameter to get a list of known checks.")
+            print("UNKNOWN: Could not find " + args.check + " in the list of known checks. Run script with -h parameter to get a list of known checks.")
             exit(NAGIOS_UNKNOWN)
     else:
         print(parser.description)
-        print(
-            "No known checks or check name was given, so we will run all known checks for testing purposes. Run with -h for more options.\n")
+        print("No known checks or check name was given, so we will run all known checks for testing purposes. Run with -h for more options.\n")
 
     for name in getCheckNames(configurations):
         config = configurations["configurations"][name]
@@ -237,7 +250,7 @@ Note that this script requires a valid config file.
             unknownToCrit = False if "unknownascritical" not in config else config["unknownascritical"]
             params = False if "parameters" not in config else config["parameters"]
 
-            result, error = parser(config)
+            result, error = check(config)
 
             ## If the error message is not empty
             if error:
@@ -245,10 +258,10 @@ Note that this script requires a valid config file.
                 nagiosMessage = error
             else:
                 try:
-                    if criticalCheck.inBadState(result[0]):
+                    if criticalCheck.inBadState(result):
                         nagiosResult = NAGIOS_CRITICAL if nagiosResult < NAGIOS_CRITICAL else nagiosResult
                         nagiosMessage += criticalCheck.getMessage()
-                    elif warningCheck.inBadState(result[0]):
+                    elif warningCheck.inBadState(result):
                         nagiosResult = NAGIOS_WARNING if nagiosResult < NAGIOS_WARNING else nagiosResult
                         nagiosMessage += warningCheck.getMessage()
                     else:
@@ -259,16 +272,13 @@ Note that this script requires a valid config file.
 
             ## After handling the result, transform macros in the message
             if nagiosMessage.find(RESULTBLOCK) > -1:
-                nagiosMessage = nagiosMessage.replace(RESULTBLOCK, result[0])
-            if nagiosMessage.find(SERVERBLOCK) > -1:
-                nagiosMessage = nagiosMessage.replace(SERVERBLOCK, server)
+                nagiosMessage = nagiosMessage.replace(RESULTBLOCK, str(result))
+            if nagiosMessage.find(LOGFILEBLOCK) > -1:
+                nagiosMessage = nagiosMessage.replace(LOGFILEBLOCK, config["logfile"])
 
             ## Now add performance data
             if performanceData:
-                if nagiosPerformanceData != "":
-                    nagiosPerformanceData += " "
-
-                nagiosPerformanceData += "'" + server + "'=" + result[0]
+                nagiosPerformanceData += "'"+name+"'=" + str(result)
                 nagiosPerformanceData += ";"
                 if warningCheck.getPerformanceIndicator():
                     nagiosPerformanceData += str(warningCheck.getPerformanceIndicator())
