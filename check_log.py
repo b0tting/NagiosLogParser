@@ -17,6 +17,7 @@ NAGIOS_UNKNOWN = 3
 NAGIOS_DICT = {NAGIOS_OK: "OK", NAGIOS_WARNING: "WARNING", NAGIOS_CRITICAL: "CRITICAL", NAGIOS_UNKNOWN: "UNKNOWN"}
 RESULTBLOCK="[RESULT]"
 LOGFILEBLOCK="[LOGFILE]"
+DATEAGEBLOCK="[DATEAGE]"
 CONFIG_FILE="logparseconfig.yaml"
 
 
@@ -53,8 +54,6 @@ class NagiosBoundaryCheck:
             self.type = "gt"
             self.boundaryfloat = float(configDict["greaterthan"])
         else:
-            print("HIERZO")
-            print(configDict)
             raise ValueError("A warning or critical boundary should have an 'expression', 'lessthan' or 'greaterthan' value")
         self.message = defaultMessage if (not configDict or "message" not in configDict) else configDict["message"]
 
@@ -78,8 +77,8 @@ class NagiosBoundaryCheck:
     def getMessage(self):
         return self.message
 
-## I took this script from here:
-## https://stackoverflow.com/a/23646049/
+## I took this script from this stack post by user "srohde":
+##      https://stackoverflow.com/a/23646049/
 ## The aim is to read large files bottom first, so I can parse dates and stop if we are no longer interested
 ## in older log lines
 def reverse_readline(filename, buf_size=8192):
@@ -116,7 +115,6 @@ def reverse_readline(filename, buf_size=8192):
 
 
 def check(config):
-    print(config)
     ## Before anything, check if our logfile exists
     error = None
     if not os.path.exists(config["logfile"]):
@@ -131,39 +129,53 @@ def check(config):
         if datetime.now() - allowedage > lastmod:
             error = "The log file " + os.path.basename(config["logfile"]) + " was older than " + config["stalealert"] + " and is considered stale."
 
-    ## File exists and is not too old
+    ## Good show so far. The log file exists and is not too old
     if error:
         return 0, error
     else:
         count = 0
+        avg = 0.0
+        avgcolumn = int(config["avgcolumn"]) if "avgcolumn" in config else False
+
         filterexpression = re.compile(str(config["filter"])) if config["filter"] else False
 
+        ## Let's parse the cutoff time and additional values first.
         donetime = datetime.now() - yamltime_to_timedelta(config["dateage"]) if config["dateage"] else False
-
-        ## Prep the column numbers in which to find date and time
-        if "dateage" in config:
-            columns = [int(col) for col in config["datecolumn"].split(",")]
+        if donetime:
+            columns = [int(col) for col in str(config["datecolumn"]).split(",")]
         else:
             columns = False
 
+        # Start reading the logfile bottom first
         for logline in reverse_readline(config["logfile"]):
-            # First, discard this line if it does not match the filter (or if the filter is empty)
+            # First, discard this line if it does not match the filter
             if not filterexpression or filterexpression.search(logline):
                 # Second, parse the date to see if we are still actual. Break when done!
-                if columns:
+                if columns or avg is not False:
                     splitlist = logline.split()
-                    if len(columns) > 1:
-                        loglinedate = splitlist[columns[0]]
-                        loglinedate += " " + splitlist[columns[1]]
-                    else:
-                        loglinedate = splitlist[columns[0]]
-                    parsetime = datetime.strptime(loglinedate,config["dateformat"])
-                    if parsetime < donetime:
-                        break
+
+                    if columns:
+                        if len(columns) > 1:
+                            loglinedate = splitlist[columns[0]]
+                            loglinedate += " " + splitlist[columns[1]]
+                        else:
+                            loglinedate = splitlist[columns[0]]
+                        parsetime = datetime.strptime(loglinedate, config["dateformat"])
+                        if parsetime < donetime:
+                            break
+
+                    if avgcolumn is not False:
+                        avg += float(splitlist[avgcolumn])
+
                 count += 1
 
-        return count, error
-
+        if avgcolumn is not False:
+            if count == 0:
+                return avg, "No recent or unfiltered log lines, so no valid average could be calculated"
+            else:
+                return avg, error
+        else:
+            return count, error
 # Here we figure out if this is a template or an actual check, using the message attribute to discriminate
 def getCheckNames(configurations):
     return [name for name in configurations["configurations"] if
@@ -204,6 +216,7 @@ Note that this script requires a valid config file.
                 mark = exc.problem_mark
                 print "Error position: (%s:%s)" % (mark.line + 1, mark.column + 1)
             print("Could not parse YAML, " + str(exc))
+            exit(4)
     else:
         print("UNKNOWN: Could not find a YAML config file named " + configfile + "!")
         exit(4)
@@ -271,10 +284,9 @@ Note that this script requires a valid config file.
                     nagiosMessage += "Unexpected result, " + str(e)
 
             ## After handling the result, transform macros in the message
-            if nagiosMessage.find(RESULTBLOCK) > -1:
-                nagiosMessage = nagiosMessage.replace(RESULTBLOCK, str(result))
-            if nagiosMessage.find(LOGFILEBLOCK) > -1:
-                nagiosMessage = nagiosMessage.replace(LOGFILEBLOCK, config["logfile"])
+            nagiosMessage = nagiosMessage.replace(RESULTBLOCK, str(result))
+            nagiosMessage = nagiosMessage.replace(LOGFILEBLOCK, config["logfile"])
+            nagiosMessage = nagiosMessage.replace(DATEAGEBLOCK, config["dateage"])
 
             ## Now add performance data
             if performanceData:

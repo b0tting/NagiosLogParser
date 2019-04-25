@@ -2,25 +2,28 @@ description: "NagiosLogParser configuration file"
 version: "0.1"
 
 # This is YAML. If you don't know about YAML, you need to know that spaces are used for indentation. Whitespace width defines sections
-#
+
 configurations:
    # We lean on YAML includes to define a base template
    # All checks referring to this base_config will inherent its parameters
+   # As this block has no "message" attribute we assume this config cannot be called by Nagios. You can overwrite these attributes in 
+   # extending configurations.
    base_config: &base
       # Path to your log file
       # Use an absolute path or assume it is in the current work directory
-      logfile: ./Backoffice_access.log
+      logfile: ./testlog.log
 
       # Also, throw an unknown status if the log file change date is older than this time in either minutes (..m), hours (..h) or days (..d)
       stalealert: 60d
 
       # Next, you could filter based on a date / time field. This requires 3 fields:
-      # - the date column of the log line, assuming a tab seperated file such as a access log. Comma seperate a second column if the
+      # - the date column of the log line, assuming a tab or space seperated file such as a access log. Comma seperate a second column if the
       #   the time is in another column, the script will concatenate them with a space
       # - the format of these dates in the loggile in quotes, using Python date format conventions.
       #   Seperate date and time with a space if they are in 2 columns
       #     https://docs.python.org/2/library/datetime.html#strftime-and-strptime-behavior
       # - and finally, which to include in either minutes (<number>m), hours (h) or days (d)
+      # Note that you can use datecolumn and dateformat in a template and dateage in a check
       datecolumn: 0,1
       dateformat: "%Y-%m-%d %H:%M:%S"
       dateage: 60d
@@ -28,62 +31,100 @@ configurations:
    check_http500:
       <<: *base
       # A description label, unused in checking
-      description: List the number of error messages on MijnZZ
+      description: List the number of error messages on ExampleURL
 
-      # The order of the different operations before aggregation:
-      # - Filter
-      #     - then countlines and alert on the number of lines left
-      #
-      #
+      dateage: 10m
 
       # Filter lines, using a regular expression. If you are not familiar with regex, just enter a word
       filter: 500
 
-      ## !! Note that any check with a message attribute is considered a check
+      ## !! Note that any configuration with a message attribute will be used as a check
       ## Configurations without a message attribute are considered templates.
-      ## Not pretty, please suggest me a better solution
-      message: Currently we have [RESULT] MijnZZ HTTP 500 error messages per hour
+      ## Not pretty, please suggest me a better YAML solution
+      ##
+      ## You can use some macros in the message:
+      ## [RESULT] - the result of the count of the number of lines counted (using the filter)
+      ## [LOGFILE] - name of the log file
+      ## [DATEAGE] - prints the dateage field
+      message: There were [RESULT] ExampleURL HTTP 500 error messages in the last [DATEAGE]
 
       warning:
         greaterthan: 30
 
         # Optional message, the base message will be used if none are her
-        message: More than [RESULT] MijnZZ HTTP 500 messages in the last 60 minutes
+        message: More than [RESULT] ExampleURL HTTP 500 messages in the last [DATEAGE]
 
       critical:
         greaterthan: 50
         # Optional message, the base message will be used if none are her
-        message: More than [RESULT] MijnZZ HTTP 500 messages in the last 60 minutes
+        message: More than [RESULT] ExampleURL HTTP 500 messages in the last [DATEAGE]
 
       # Add performancedata to the check result
       performancedata: true
 
-   check_responsetimes:
+   check_num_requests:
       <<: *base
-      # A description label, unused in checking
-      description: Show the average response time on MijnZZ messages
-
-      # The order of the different operations before aggregation:
-      # - Filter
-      #     - then countlines and alert on the number of lines left
-      #
-      #
-
-      # Filter lines, using a regular expression. Only matched lines are kept. If you are not familiar with regex, just enter a word
-      filter: MijnZZ
-
-      message: Currently we have [RESULT] MijnZZ HTTP 500 error messages per hour
-
-      warning:
-        greaterthan: 30
-
-        # Optional message, the base message will be used if none are her
-        message: More than [RESULT] MijnZZ HTTP 500 messages in the last 60 minutes
-
+      description: Show the number of ExampleURL requests per 2 minutes
+      filter: ExampleURL
+      message: Currently we have [RESULT] ExampleURL requests per [DATEAGE]
       critical:
-         greaterthan: 50
-         # Optional message, the base message will be used if none are her
-         message: More than [RESULT] MijnZZ HTTP 500 messages in the last 60 minutes
-
-      # Add performancedata to the check result
+         greaterthan: 100
+         message: More than [RESULT] ExampleURL requests in the last [DATEAGE]
       performancedata: true
+      dateage: 2m
+
+   check_num_error_requests:
+      <<: *base
+      description: Show the number of failed ExampleURL requests per 5 minutes
+      ## 2019-04-25      10:16:25        GET     - 127.0.0.1  -       /ExampleURL_v3r0  500
+      filter: ExampleURL_v3r0\s+500
+      message: Currently we have [RESULT] failed ExampleURL requests per [DATEAGE]
+      critical:
+         greaterthan: 10
+         message: More than [RESULT] failed ExampleURL requests in the last [DATEAGE]
+      performancedata: true
+      dateage: 5m
+
+
+   check_slow_exampleurl_response:
+      <<: *base
+      description: Show the number of requests running more than 10 secs in the last 10 minutes
+      ## Here's a log line that would match this complicated filter:
+      ## 2019-04-25      10:16:25        GET     - 127.0.0.1  -       /ExampleURL_v3r0  500     12.001
+      ##                                                                                ^^^     ^^
+      ## Note that last column, that's the response time as a float in seconds. We use the dot to figure out
+      ## whole seconds.
+      filter: (200|500)\s+[1-9][0-9]
+      message: Currently we have [RESULT] slow requests per [DATEAGE]
+      critical:
+         greaterthan: 100
+         message: More than [RESULT] slow requests in the last [DATEAGE]
+      performancedata: true
+      dateage: 10m
+
+   check_avg_exampleurl_response:
+    <<: *base
+    description: Show the average response time in the last 10 minutes
+    filter: ExampleURL
+    ## This is a special use case. Point the avgcolumn to the column number of the response times
+    ## For example, in this log format:
+    ## 2019-04-25      10:16:25        GET     - 127.0.0.1  -       /ExampleURL_v3r0  500     12.001
+    ## ..starting at 0, it is column 8, the 12.001
+    avgcolumn: 8
+    message: Currently response time average for ExampleURL requests is at [RESULT]
+    critical:
+       greaterthan: 10
+       message: Average response time is over [RESULT]!
+    performancedata: true
+    dateage: 10m
+
+   check_apache_500:
+    logfile: ./apachetest.log
+    ## Apache lines look like this:
+    ## 127.0.0.1 - - [25/Apr/2019:15:15:53 -0800] "GET /test.html HTTP/1.1" 500 2869
+    ## Note the space for the timezone. That's considered an additional column, we'll just ignore that
+    filter: HTTP\/1\.1\"\s500
+    message: Currently Apache error count - [RESULT]
+    datecolumn: 3
+    dateformat: "[%d/%b/%Y:%H:%M:%S"
+    dateage: 60d
