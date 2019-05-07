@@ -15,18 +15,33 @@ apt install python-yaml
 ```
 
 ##### Configure logparseconfig.yaml
-Let's skip YAML templating for now. Create a new check like following:
+Let's skip YAML templating for now. The absolute minimal config file is the following:
 ```
 configurations:
-    count_http_500:
+    logfile_check:
       logfile: /var/log/httpd/ssl_access_log
-      message: Less than 50 HTTP 500 errors in the log file
-      critical:
-        greaterthan: 50
-        message: More than 50 HTTP 500 errors in the log file
+      message: We can access the ssl_access_log file
 ```
 
+You can run this check as following:
+```
+/usr/bin/python /usr/local/check_log.py -c logfile_check
+```
 
+Here's a more sane check, add this as a child to the "configurations" entry:
+```
+    count_http500:
+      filter: HTTP\/1\.1\"\s500
+      message: Currently Apache error count per hour - [RESULT]
+      datecolumn: 3
+      dateformat: "[%d/%b/%Y:%H:%M:%S"
+      dateage: 60m      
+      performancedata: true
+      critical:
+        greaterthan: 10
+        message: Current Apache error count per hour is over [RESULT]! 
+```
+The filter is a regular expression that filter everything except the HTTP 500 access log entries. The three date fields tell the check which column contains the date, how to parse it and when to consider lines to be old (and stop parsing). Finally, we tell the check to return a Nagios error status if there are over 10 errors. Also, the result will contain performance data useable in Nagios graph or any other time series storage.    
 ##### Testing
 When you run the check_log script with the -h parameter, it will display a help message and the names of all known tests. If you run the check_log script without any parameters it will then run all tests.
 

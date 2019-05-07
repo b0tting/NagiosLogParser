@@ -16,6 +16,14 @@ configurations:
       # Also, throw an unknown status if the log file change date is older than this time in either minutes (..m), hours (..h) or days (..d)
       stalealert: 60d
 
+      # Optionally, throw an error if the logfile is a null file, for example, if you are alerting on the
+      # result of a nightly cron job
+      nullalert: true
+
+      # And another sanity option, you can tell the script to throw an alert if the log file is too big (in megabytes)
+      # This could prevent this check from consuming large amounts of resources in case of log file flooding
+      sizealert: 1000
+
       # Next, you could filter based on a date / time field. This requires 3 fields:
       # - the date column of the log line, assuming a tab or space seperated file such as a access log. Comma seperate a second column if the
       #   the time is in another column, the script will concatenate them with a space
@@ -127,4 +135,4 @@ configurations:
     message: Currently Apache error count - [RESULT]
     datecolumn: 3
     dateformat: "[%d/%b/%Y:%H:%M:%S"
-    dateage: 60d
+    dateage: 60m

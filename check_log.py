@@ -2,12 +2,9 @@ import argparse
 import sys
 from datetime import datetime
 import os
-
-## Const values
 import re
 from datetime import timedelta
-from time import strftime
-
+## The pyyaml lib
 import yaml
 
 NAGIOS_OK = 0
@@ -128,8 +125,14 @@ def check(config):
         allowedage = yamltime_to_timedelta(config["stalealert"])
         if datetime.now() - allowedage > lastmod:
             error = "The log file " + os.path.basename(config["logfile"]) + " was older than " + config["stalealert"] + " and is considered stale."
+    ## Also, consider the size
+    elif "nullalert" in config or "sizealert" in config:
+        size = os.path.getsize(config["logfile"])
+        if "nullalert" in config and size == 0:
+            error = "The log file " + os.path.basename(config["logfile"]) + " is 0 bytes"
+        elif "sizealert" in config and size > (config["sizealert"] * 1024 * 1024):
+            error = "The log file " + os.path.basename(config["logfile"]) + " is larger than the allowed " + config["sizealert"] + "mb and will not be parsed"
 
-    ## Good show so far. The log file exists and is not too old
     if error:
         return 0, error
     else:
