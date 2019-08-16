@@ -20,7 +20,7 @@ VERBOSE = False
 
 def printIfVerbose(string):
     if VERBOSE:
-        print(string)
+        print(str(string))
 
 def yamltime_to_timedelta(yamltime):
     scalar = int(yamltime[:-1])
@@ -116,6 +116,7 @@ def reverse_readline(filename, buf_size=8192):
 
 
 def check(config):
+    printIfVerbose(config)
     ## Before anything, check if our logfile exists
     error = None
     if not os.path.exists(config["logfile"]):
@@ -145,8 +146,7 @@ def check(config):
         avg = 0.0
         avgcolumn = int(config["avgcolumn"]) if "avgcolumn" in config else False
 
-        filterexpression = re.compile(str(config["filter"])) if filter in config and config["filter"] else False
-
+        filterexpression = re.compile(str(config["filter"])) if "filter" in config else False
         ## Let's parse the cutoff time and additional values first.
         donetime = datetime.now() - yamltime_to_timedelta(config["dateage"]) if config["dateage"] else False
         if donetime:
@@ -171,7 +171,6 @@ def check(config):
 
                         try:
                             parsetime = datetime.strptime(loglinedate, config["dateformat"])
-                            printIfVerbose("Parsed " + loglinedate + " to  " + str(parsetime))
                             if parsetime < donetime:
                                 break
                         except ValueError:
