@@ -16,7 +16,11 @@ RESULTBLOCK="[RESULT]"
 LOGFILEBLOCK="[LOGFILE]"
 DATEAGEBLOCK="[DATEAGE]"
 CONFIG_FILE="logparseconfig.yaml"
+VERBOSE = False
 
+def printIfVerbose(string):
+    if VERBOSE:
+        print(string)
 
 def yamltime_to_timedelta(yamltime):
     scalar = int(yamltime[:-1])
@@ -136,11 +140,12 @@ def check(config):
     if error:
         return 0, error
     else:
+        linecount = 0
         count = 0
         avg = 0.0
         avgcolumn = int(config["avgcolumn"]) if "avgcolumn" in config else False
 
-        filterexpression = re.compile(str(config["filter"])) if config["filter"] else False
+        filterexpression = re.compile(str(config["filter"])) if filter in config and config["filter"] else False
 
         ## Let's parse the cutoff time and additional values first.
         donetime = datetime.now() - yamltime_to_timedelta(config["dateage"]) if config["dateage"] else False
@@ -163,14 +168,25 @@ def check(config):
                             loglinedate += " " + splitlist[columns[1]]
                         else:
                             loglinedate = splitlist[columns[0]]
-                        parsetime = datetime.strptime(loglinedate, config["dateformat"])
-                        if parsetime < donetime:
-                            break
+
+                        try:
+                            parsetime = datetime.strptime(loglinedate, config["dateformat"])
+                            printIfVerbose("Parsed " + loglinedate + " to  " + str(parsetime))
+                            if parsetime < donetime:
+                                break
+                        except ValueError:
+                            printIfVerbose("Could not parse " + loglinedate + " from (bottom up) line " + str(linecount))
+                            if "dateignoreerrors" in config and config["dateignoreerrors"]:
+                                pass
+                            else:
+                                error = "Could not extract a valid date from '" + loglinedate + "'"
+                                break
 
                     if avgcolumn is not False:
                         avg += float(splitlist[avgcolumn])
 
                 count += 1
+            linecount += 1
 
         if avgcolumn is not False:
             if count == 0:
@@ -179,6 +195,7 @@ def check(config):
                 return avg, error
         else:
             return count, error
+
 # Here we figure out if this is a template or an actual check, using the message attribute to discriminate
 def getCheckNames(configurations):
     return [name for name in configurations["configurations"] if
@@ -240,6 +257,8 @@ Note that this script requires a valid config file.
         print(known)
         exit(0)
 
+    VERBOSE = args.verbose
+
     if args.check:
         if args.check not in getCheckNames(configurations):
             print("UNKNOWN: Could not find " + args.check + " in the list of known checks. Run script with -h parameter to get a list of known checks.")
@@ -248,7 +267,13 @@ Note that this script requires a valid config file.
         print(parser.description)
         print("No known checks or check name was given, so we will run all known checks for testing purposes. Run with -h for more options.\n")
 
-    for name in getCheckNames(configurations):
+    checks = getCheckNames(configurations)
+    if len(checks) == 0:
+        print("Although the file exists and is a YAML file, there were no valid checks in the given configuration file")
+        exit(0)
+
+    for name in checks:
+        printIfVerbose("First check up is " + name)
         config = configurations["configurations"][name]
 
         ## Skip unnamed configurations as they are probably used as templates

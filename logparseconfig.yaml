@@ -8,6 +8,8 @@ configurations:
    # All checks referring to this base_config will inherent its parameters
    # As this block has no "message" attribute we assume this config cannot be called by Nagios. You can overwrite these attributes in 
    # extending configurations.
+
+   # Also, note that this will be the name of the check, "base_config".
    base_config: &base
       # Path to your log file
       # Use an absolute path or assume it is in the current work directory
@@ -35,6 +37,12 @@ configurations:
       datecolumn: 0,1
       dateformat: "%Y-%m-%d %H:%M:%S"
       dateage: 60d
+      # If set to true and parsing fails due to an unexpected value that could not be parsed, ignore that line. Otherwise, exit with a Nagios unknown message
+      # I would suggest first testing with false to see if your logfiles can be fully parsed so an incorrect dateformat would not end up spooling through your
+      # entire logfile with each check.
+      # Defaults to true
+      dateignoreerrors: false
+
 
    check_http500:
       <<: *base
