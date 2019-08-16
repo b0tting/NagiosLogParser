@@ -150,7 +150,7 @@ def check(config):
         datelinehack = config["datesearchall"] if "datesearchall" in config else False
         dateignoreerrors = "dateignoreerrors" in config and config["dateignoreerrors"]
         ## Let's parse the cutoff time and additional values first.
-        donetime = datetime.now() - yamltime_to_timedelta(config["dateage"]) if config["dateage"] else False
+        donetime = datetime.now() - yamltime_to_timedelta(config["dateage"]) if "dateage" in config else False
         if donetime:
             columns = [int(col) for col in str(config["datecolumn"]).split(",")]
         else:
@@ -322,7 +322,8 @@ Note that this script requires a valid config file.
             ## After handling the result, transform macros in the message
             nagiosMessage = nagiosMessage.replace(RESULTBLOCK, str(result))
             nagiosMessage = nagiosMessage.replace(LOGFILEBLOCK, config["logfile"])
-            nagiosMessage = nagiosMessage.replace(DATEAGEBLOCK, config["dateage"])
+            if "dateage" in config:
+                nagiosMessage = nagiosMessage.replace(DATEAGEBLOCK, config["dateage"])
 
             ## Now add performance data
             if performanceData:

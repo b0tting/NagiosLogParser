@@ -46,7 +46,24 @@ Add this as a child to the "configurations" entry:
 - The filter is a regular expression that filters everything except the HTTP 500 access log entries. 
 - The three date fields tell the check which column contains the date, how to parse it and when to consider lines to be old (and stop parsing). The "dateage" tells us to check back up to 10 minutes ago. 
 - Also, the result will contain performance data usable in Nagios graph or any other time series storage, as signalled by the "performancedata" flag.
-- Finally, we tell the check to return a Nagios error status if there are over 10 errors.     
+- Finally, we tell the check to return a Nagios error status if there are over 10 errors.
+
+##### Multiline logfiles
+It could well be that you are trying to test a logfile with multiline errors, like a java std out. In that case you will need to enable some additional parameters:
+- Set the "datesearchall" option to true to search all lines for dates, not just those matching your filter
+- Or, set the "dateignoreerrors" option to true to ignore date parse errors, but beware that you can cycle through the whole logfile. 
+```
+configurations:
+   my_java_out:
+      logfile: ./standard.out
+      datecolumn: 0
+      dateformat: "[%Y-%m-%dT%H:%M:%S.%f+02:00]"
+      dateage: 50h
+      datesearchall: false
+      filter: SecurityException
+      message: Got [RESULT] SecurityExceptions in the last [DATEAGE]
+```   
+     
 ##### Testing
 When you run the check_log script with the -h parameter, it will display a help message and the names of all known tests. If you run the check_log script without any parameters it will then run all tests.
 
