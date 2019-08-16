@@ -45,8 +45,8 @@ configurations:
       # This is somewhat of a hack. The log parser is ideal for single line access logs, but could in theory be used for multi-line logs. That means the
       # date and the filter expression you are looking for are not on the same line. In that case, enable this flag to search all lines for dates.
       # In theory, this would make things a little slower but that should not be an issue if using more recent dates OR smaller logfiles
-      datesearchall: true
-
+      # Also, this implicitely sets the dateignoreerrors to true, as not every line contains a valid date
+      datesearchall: false
 
    check_http500:
       <<: *base

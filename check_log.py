@@ -148,6 +148,7 @@ def check(config):
 
         filterexpression = re.compile(str(config["filter"])) if "filter" in config else False
         datelinehack = config["datesearchall"] if "datesearchall" in config else False
+        dateignoreerrors = "dateignoreerrors" in config and config["dateignoreerrors"]
         ## Let's parse the cutoff time and additional values first.
         donetime = datetime.now() - yamltime_to_timedelta(config["dateage"]) if config["dateage"] else False
         if donetime:
@@ -175,13 +176,11 @@ def check(config):
 
                         try:
                             parsetime = datetime.strptime(loglinedate, config["dateformat"])
-                            print(parsetime)
                             if parsetime < donetime:
                                 break
                         except ValueError:
-                            print(loglinedate)
                             printIfVerbose("Could not parse " + loglinedate + " from (bottom up) line " + str(linecount))
-                            if "dateignoreerrors" in config and config["dateignoreerrors"]:
+                            if datelinehack or dateignoreerrors:
                                 pass
                             else:
                                 error = "Could not extract a valid date from '" + loglinedate + "'"
