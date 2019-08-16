@@ -147,6 +147,7 @@ def check(config):
         avgcolumn = int(config["avgcolumn"]) if "avgcolumn" in config else False
 
         filterexpression = re.compile(str(config["filter"])) if "filter" in config else False
+        datelinehack = config["datesearchall"] if "datesearchall" in config else False
         ## Let's parse the cutoff time and additional values first.
         donetime = datetime.now() - yamltime_to_timedelta(config["dateage"]) if config["dateage"] else False
         if donetime:
@@ -156,8 +157,11 @@ def check(config):
 
         # Start reading the logfile bottom first
         for logline in reverse_readline(config["logfile"]):
-            # First, discard this line if it does not match the filter
-            if not filterexpression or filterexpression.search(logline):
+            matching = filterexpression.search(logline)
+            ## Only continue if:
+            # - this line matches the filter OR
+            # - we need to check if there is a valid date in this line
+            if not filterexpression or matching or datelinehack:
                 # Second, parse the date to see if we are still actual. Break when done!
                 if columns or avg is not False:
                     splitlist = logline.split()
@@ -171,9 +175,11 @@ def check(config):
 
                         try:
                             parsetime = datetime.strptime(loglinedate, config["dateformat"])
+                            print(parsetime)
                             if parsetime < donetime:
                                 break
                         except ValueError:
+                            print(loglinedate)
                             printIfVerbose("Could not parse " + loglinedate + " from (bottom up) line " + str(linecount))
                             if "dateignoreerrors" in config and config["dateignoreerrors"]:
                                 pass
@@ -184,7 +190,8 @@ def check(config):
                     if avgcolumn is not False:
                         avg += float(splitlist[avgcolumn])
 
-                count += 1
+                if matching:
+                    count += 1
             linecount += 1
 
         if avgcolumn is not False:
