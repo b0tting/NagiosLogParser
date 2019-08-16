@@ -230,7 +230,10 @@ Note that this script requires a valid config file.
 
     if (os.path.exists(configfile)):
         try:
-            configurations = yaml.load(open(configfile, "r"), Loader=yaml.FullLoader)
+            if hasattr(yaml, "FullLoader"):
+                configurations = yaml.load(open(configfile, "r"), Loader=yaml.FullLoader)
+            else:
+                configurations = yaml.load(open(configfile, "r"))
         except yaml.YAMLError, exc:
             if hasattr(exc, 'problem_mark'):
                 mark = exc.problem_mark
