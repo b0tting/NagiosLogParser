@@ -239,10 +239,11 @@ Note that this script requires a valid config file.
                 configurations = yaml.load(open(configfile, "r"), Loader=yaml.FullLoader)
             else:
                 configurations = yaml.load(open(configfile, "r"))
-        except yaml.YAMLError, exc:
+        except yaml.YAMLError:
+            _, exc, _ = sys.exc_info()
             if hasattr(exc, 'problem_mark'):
                 mark = exc.problem_mark
-                print "Error position: (%s:%s)" % (mark.line + 1, mark.column + 1)
+                print("Error position: (%s:%s)" % (mark.line + 1, mark.column + 1))
             print("Could not parse YAML, " + str(exc))
             exit(4)
     else:
