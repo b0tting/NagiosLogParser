@@ -37,6 +37,10 @@ configurations:
       datecolumn: 0,1
       dateformat: "%Y-%m-%d %H:%M:%S"
       dateage: 60d
+
+      # A setup that would work with Nginx out of the box:
+      #       datecolumn: 3
+      #       dateformat: "[%d/%b/%Y:%H:%M:%S"
       # If set to true and parsing fails due to an unexpected value that could not be parsed, ignore that line. Otherwise, exit with a Nagios unknown message
       # I would suggest first testing with false to see if your logfiles can be fully parsed so an incorrect dateformat would not end up spooling through your
       # entire logfile with each check.
@@ -55,8 +59,12 @@ configurations:
 
       dateage: 10m
 
-      # Filter lines, using a regular expression. If you are not familiar with regex, just enter a word
+      # Filter lines, using a regular expression. This will count every line with a "500" in it so this might generate
+      # some false positives if the response time is also 500ms for example. If you are not familiar with regex, just enter a word
       filter: 500
+
+      # Here's a better count for HTTP 5xx errors using simple regex:
+      # filter: \"\s5[0-1][0-9]\s
 
       ## !! Note that any configuration with a message attribute will be used as a check
       ## Configurations without a message attribute are considered templates.
