@@ -119,28 +119,68 @@ def reverse_readline(filename, buf_size=8192):
             yield segment
 
 
+class LogFile:
+    def __init__(self, filename):
+        self.basename = os.path.basename(filename)
+        self.file = filename
+        if not os.path.exists(filename):
+            raise IOError("Could not find logfile " + self.basename)
+        elif not os.access(self.file, os.R_OK):
+            raise IOError("Could find but not read logfile " + self.basename)
+        self.size = os.path.getsize(self.file)
+
+    def is_stale(self, staledate):
+        mtime = os.stat(self.file).st_mtime
+        lastmod = datetime.fromtimestamp(mtime)
+        allowedage = yamltime_to_timedelta(staledate)
+        return datetime.now() - allowedage > lastmod
+
+    def is_null(self):
+        return self.size == 0
+
+    def is_more_mb_then(self, largesize):
+        return self.size > largesize * 1024 * 1024
+
+
+class ColumnDateExtractor:
+    def __init__(self, datecolumns):
+        self.columns = [int(col) for col in str(datecolumns).split(",")]
+
+    def extract_date_string(self, logline):
+        splitlist = logline.split()
+        if len(self.columns) > 1:
+            loglinedate = splitlist[self.columns[0]]
+            loglinedate += " " + splitlist[self.columns[1]]
+        else:
+            loglinedate = splitlist[self.columns[0]]
+        return loglinedate
+
+
+class ExpressionDateExtractor:
+    def __init__(self, dateexpression ):
+        self.expression = re.compile(str(dateexpression))
+
+    def extract_date_string(self, logline):
+        match = self.expression.search(logline)
+        return match.group(1) if match else "(no date match)"
+
+
 def check(config):
     printIfVerbose(config)
     # Before anything, check if our logfile exists
     error = None
-    if not os.path.exists(config["logfile"]):
-        error = "Could not find logfile " + os.path.basename(config["logfile"])
-    elif not os.access(config["logfile"], os.R_OK):
-        error = "Could find but not read logfile " + os.path.basename(config["logfile"])
-    # Then, check if we are stale and if we are interested in stale-ness
-    elif "stalealert" in config:
-        mtime = os.stat(config["logfile"]).st_mtime
-        lastmod = datetime.fromtimestamp(mtime)
-        allowedage = yamltime_to_timedelta(config["stalealert"])
-        if datetime.now() - allowedage > lastmod:
-            error = "The log file " + os.path.basename(config["logfile"]) + " was older than " + config["stalealert"] + " and is considered stale."
-    # Also, consider the size
-    elif "nullalert" in config or "sizealert" in config:
-        size = os.path.getsize(config["logfile"])
-        if "nullalert" in config and size == 0:
+    try:
+        logfile = LogFile(config["logfile"])
+        if "stalealert" in config and logfile.is_stale(config["stalealert"]):
+            error = "The log file " + os.path.basename(config["logfile"]) + " was older than " + config[
+                "stalealert"] + " and is considered stale."
+        if "nullalert" in config and logfile.is_null():
             error = "The log file " + os.path.basename(config["logfile"]) + " is 0 bytes"
-        elif "sizealert" in config and size > (config["sizealert"] * 1024 * 1024):
-            error = "The log file " + os.path.basename(config["logfile"]) + " is larger than the allowed " + config["sizealert"] + "mb and will not be parsed"
+        if "sizealert" in config and logfile.is_more_mb_then(config["sizealert"]):
+            error = "The log file " + os.path.basename(config["logfile"]) + " is larger than the allowed " + config[
+                "sizealert"] + "mb and will not be parsed"
+    except IOError as e:
+        error = str(e)
 
     if error:
         return 0, error
@@ -149,16 +189,21 @@ def check(config):
         count = 0
         avg = 0.0
         avgcolumn = int(config["avgcolumn"]) if "avgcolumn" in config else False
-
         filterexpression = re.compile(str(config["filter"])) if "filter" in config else False
-        datelinehack = config["datesearchall"] if "datesearchall" in config else False
-        dateignoreerrors = "dateignoreerrors" in config and config["dateignoreerrors"]
-        # Let's parse the cutoff time and additional values first.
+
         donetime = datetime.now() - yamltime_to_timedelta(config["dateage"]) if "dateage" in config else False
         if donetime:
-            columns = [int(col) for col in str(config["datecolumn"]).split(",")]
+            if config.get("dateexpression"):
+                extractor = ExpressionDateExtractor(config.get("dateexpression"))
+            elif config.get("datecolumn"):
+                extractor = ColumnDateExtractor(config.get("datecolumn"))
+            else:
+                raise ValueError("Dateage was given, but no dateexpression or datecolumn for where to find the date")
         else:
-            columns = False
+            extractor = False
+
+        datelinehack = config["datesearchall"] if "datesearchall" in config else False
+        dateignoreerrors = "dateignoreerrors" in config and config["dateignoreerrors"]
 
         # Start reading the logfile bottom first
         for logline in reverse_readline(config["logfile"]):
@@ -168,36 +213,31 @@ def check(config):
             # - we need to check if there is a valid date in this line
             if not filterexpression or matching or datelinehack:
                 # Second, parse the date to see if we are still actual. Break when done!
-                if columns or avg is not False:
-                    splitlist = logline.split()
+                if extractor:
+                    loglinedate = extractor.extract_date_string(logline)
+                    try:
+                        parsetime = datetime.strptime(loglinedate, config["dateformat"])
+                        if config.get("dateignoreyear"):
+                            parsetime = parsetime.replace(year=donetime.year)
 
-                    if columns:
-                        if len(columns) > 1:
-                            loglinedate = splitlist[columns[0]]
-                            loglinedate += " " + splitlist[columns[1]]
-                        else:
-                            loglinedate = splitlist[columns[0]]
+                        if parsetime < donetime:
+                            # The most important break. This means we parsed a date older then the max age of the log
+                            break
 
-                        try:
-                            parsetime = datetime.strptime(loglinedate, config["dateformat"])
-                            if parsetime < donetime:
-                                break
-                        except ValueError:
-                            printIfVerbose("Could not parse " + loglinedate + " from (bottom up) line " + str(linecount))
-                            if datelinehack or dateignoreerrors:
-                                pass
-                            else:
-                                error = "Could not extract a valid date from '" + loglinedate + "'"
-                                break
+                    except ValueError:
+                        printIfVerbose("Could not parse " + loglinedate + " from line " + str(linecount) + " from bottom")
+                        if not datelinehack and not dateignoreerrors:
+                            error = "Could not extract a valid date from '" + loglinedate + "'"
+                            break
 
-                    if avgcolumn is not False:
-                        avg += float(splitlist[avgcolumn])
+                    if avgcolumn:
+                        avg += float(logline.split(" ")[avgcolumn])
 
                 if matching:
                     count += 1
             linecount += 1
 
-        if avgcolumn is not False:
+        if avgcolumn:
             if count == 0:
                 return avg, "No recent or unfiltered log lines, so no valid average could be calculated"
             else:

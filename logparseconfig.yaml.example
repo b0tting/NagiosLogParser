@@ -29,10 +29,15 @@ configurations:
       # Next, you could filter based on a date / time field. This requires 3 fields:
       # - the date column of the log line, assuming a tab or space seperated file such as a access log. Comma seperate a second column if the
       #   the time is in another column, the script will concatenate them with a space
-      # - the format of these dates in the loggile in quotes, using Python date format conventions.
+      #    OR
+      #   Give an expression to grep the date from the line. The first group is used - see the syslog example.
+      # - the format of these dates in the logfile in quotes, using Python date format conventions.
       #   Seperate date and time with a space if they are in 2 columns
       #     https://docs.python.org/2/library/datetime.html#strftime-and-strptime-behavior
       # - and finally, which to include in either minutes (<number>m), hours (h) or days (d)
+      #
+      # If you have a timestamp without a year, add the dateignoreyear: true flag to test without the year
+      #
       # Note that you can use datecolumn and dateformat in a template and dateage in a check
       datecolumn: 0,1
       dateformat: "%Y-%m-%d %H:%M:%S"
@@ -113,6 +118,20 @@ configurations:
       performancedata: true
       dateage: 5m
 
+   check_syslog_blocked:
+      <<: *base
+      description: Show the number of stuck processes in syslog
+      ## Mar 30 15:29:03 server01 kernel: [11990033.944397] INFO: task php-fpm7.2:18117 blocked for more than 120 seconds.
+      filter: php-fpm.*blocked for more than [0-9]+ seconds
+      dateexpression: ^([\w]{3}\s[0-3][0-9]\s[0-2][0-9]:[0-5][0-9]:[0-5][0-9]).*
+      dateformat: "%b %d %H:%M:%S"
+      dateignoreyear: true
+      dateage: 5m
+      message: There were [RESULT] blocked PHP processes in the syslog in the last [DATEAGE]
+      critical:
+        greaterthan: 0
+        message: There were [RESULT] blocked PHP processes in the last [DATEAGE], indicating system failure!
+      performancedata: true
 
    check_slow_exampleurl_response:
       <<: *base
